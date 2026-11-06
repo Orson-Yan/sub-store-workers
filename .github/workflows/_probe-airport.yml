@@ -1,0 +1,11 @@
+name: probe-airport
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetch
+        run: |
+          code=$(curl -sS -m 30 -o out.txt -w '%{http_code}' -A 'clash.meta/v1.19.23' "${{ secrets.AIRPORT_SUB_URL }}")
+          echo "status=$code size=$(wc -c < out.txt)"
+          head -c 120 out.txt
