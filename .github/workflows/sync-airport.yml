@@ -66,7 +66,7 @@ jobs:
           set -euo pipefail
           # 去掉 secret 可能携带的换行/回车，避免 curl 报 Malformed input
           base="$(printf '%s' "${SUB_STORE_BASE%/}${SUB_STORE_PASSWORD}" | tr -d '\r\n')"
-          echo "base_len=${#base}"
+          echo "l_base=${#SUB_STORE_BASE} l_pwd=${#SUB_STORE_PASSWORD} l_name=${#SUB_NAME} base_len=${#base}"
 
           # 只写 source/content 并清空 url：后端不会再尝试直连机场
           jq -Rs '{source:"local", content:., url:""}' sub.txt > payload.json
