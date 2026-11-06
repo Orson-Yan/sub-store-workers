@@ -36,6 +36,7 @@ import {
     matchesBackendPath,
     stripBackendPath,
 } from '@/utils/backend-path';
+import { isConfigRequest, handleConfigRequest } from './config-render';
 
 // CORS 响应头。集中在一处，便于后续从 '*' 收紧为白名单时单点修改
 // （上游 2.38.x 起默认已不再是 '*'，见 ../Sub-Store/backend/src/utils/cors.js）
@@ -118,6 +119,8 @@ export default {
 
             const url = new URL(request.url);
             let pathname = url.pathname;
+            // 保留原始路径（含密码前缀），配置渲染路由需要在剥离前缀前匹配
+            const originalPathname = pathname;
 
             // 路径前缀鉴权（可选）
             // 配置 SUB_STORE_FRONTEND_BACKEND_PATH = "/你的密码" 后
@@ -175,6 +178,15 @@ export default {
             migrate();
 
             console.log(`Sub-Store Workers v${version} handling: ${request.method} ${pathname}`);
+
+            // 完整配置渲染（/<密码>/cfg/<client>/<name>），需要 KV 数据已就绪
+            if (isConfigRequest(originalPathname)) {
+                const response = await handleConfigRequest(request, originalPathname, {
+                    backendPath,
+                });
+                flushPending(ctx);
+                return response;
+            }
 
             // /share/ 路由的 token 验证（与上游 Node.js 版 be_merge 行为一致）
             // 所有 /share/ 请求都必须携带有效 token，未分享的订阅/文件不可直接访问

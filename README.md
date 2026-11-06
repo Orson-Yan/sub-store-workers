@@ -273,6 +273,25 @@ SUB_STORE_FRONTEND_BACKEND_PATH = "/你的密码"
 
 ## 进阶配置 / 平台说明
 
+### 完整配置渲染（Clash / Quantumult X）
+
+Sub-Store 的 producers 只输出节点列表（`proxies` / `server_local`），不含 `proxy-groups`、`policy` 和 `rules`。本仓库额外提供两个渲染路由，把节点套进内置模板，一次下发「节点 + 分组 + 分流规则」：
+
+```text
+https://你的域名/你的密码/cfg/clash/<订阅或组合名>   # mihomo / Clash（Clash Party、Mihomo Party、Verge、Stash…）
+https://你的域名/你的密码/cfg/qx/<订阅或组合名>      # Quantumult X
+```
+
+行为说明：
+
+- 名称可以是单条订阅，也可以是组合（collection），按 `subs` 优先、`collections` 兜底查找
+- 分组：🚀 节点选择 / ♻️ 自动选择 / 按地区（香港、台湾、日本、新加坡、美国、韩国、英国、德国）/ 🌐 其他节点
+- 规则：广告拦截、局域网直连、国内直连，其余走节点；QX 广告规则通过 `filter_remote` 引用
+- 密码前缀错误或不匹配时统一返回 404，不会泄露节点信息
+- 仅支持 `GET` / `HEAD`；响应 `profile-update-interval: 6`（6 小时刷新）
+
+模板逻辑在 `src/utils/config-templates.js`（纯函数，含单测），路由处理在 `src/config-render.js`。
+
 <details>
 <summary><b>本地开发</b></summary>
 
