@@ -17,10 +17,12 @@ import { findByName } from '@/utils/database';
 import {
     isConfigRequest,
     matchConfigRoute,
+    pickClientFromPlatform,
     buildClashConfig,
     buildQxConfig,
     parseClashProxies,
 } from '@/utils/config-templates';
+import { getPlatformFromHeaders } from '@/utils/user-agent';
 
 export { isConfigRequest };
 
@@ -73,12 +75,17 @@ export async function handleConfigRequest(request, pathname, { backendPath }) {
         });
     }
 
+    // 未在路径里指定格式时，按客户端 User-Agent 自动识别：QX → 圈X 配置，其余 → mihomo
+    const client =
+        matched.client ||
+        pickClientFromPlatform(getPlatformFromHeaders(Object.fromEntries(request.headers)));
+
     let text;
     try {
         text = await produceArtifact({
             type: source.type,
             name: source.name,
-            platform: matched.client === 'qx' ? 'QuantumultX' : 'mihomo',
+            platform: client === 'qx' ? 'QuantumultX' : 'mihomo',
             // 配置渲染只需要节点，跳过流量查询，避免每次请求都访问机场
             noFlow: true,
         });
@@ -92,7 +99,7 @@ export async function handleConfigRequest(request, pathname, { backendPath }) {
     let body;
     try {
         body =
-            matched.client === 'qx'
+            client === 'qx'
                 ? buildQxConfig(`${text == null ? '' : text}`)
                 : buildClashConfig(parseClashProxies(`${text == null ? '' : text}`));
     } catch (error) {
@@ -102,9 +109,7 @@ export async function handleConfigRequest(request, pathname, { backendPath }) {
     }
 
     const contentType =
-        matched.client === 'qx'
-            ? 'text/plain; charset=utf-8'
-            : 'text/yaml; charset=utf-8';
+        client === 'qx' ? 'text/plain; charset=utf-8' : 'text/yaml; charset=utf-8';
 
     return new Response(
         request.method.toUpperCase() === 'HEAD' ? null : body,

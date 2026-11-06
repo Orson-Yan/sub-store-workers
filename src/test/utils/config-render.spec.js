@@ -6,6 +6,7 @@ import {
     classifyRegion,
     groupByRegion,
     matchConfigRoute,
+    pickClientFromPlatform,
     buildClashConfig,
     buildQxConfig,
 } from '@/utils/config-templates';
@@ -54,10 +55,34 @@ describe('config render', function () {
             expect(matchConfigRoute('/secret/cfg/qx/main').client).to.equal('qx');
         });
 
+        it('supports omitting the client segment for UA auto-detection', function () {
+            expect(matchConfigRoute('/secret/cfg/main')).to.deep.equal({
+                password: 'secret',
+                client: null,
+                name: 'main',
+            });
+        });
+
         it('rejects unrelated paths and extra segments', function () {
-            expect(matchConfigRoute('/secret/cfg/clash')).to.equal(null);
+            // 无强制格式时，`clash` 会被当成订阅名
+            expect(matchConfigRoute('/secret/cfg/clash')).to.deep.equal({
+                password: 'secret',
+                client: null,
+                name: 'clash',
+            });
             expect(matchConfigRoute('/secret/cfg/v2ray/main')).to.equal(null);
             expect(matchConfigRoute('/secret/cfg/clash/a/b')).to.equal(null);
+        });
+    });
+
+    describe('pickClientFromPlatform', function () {
+        it('maps QX to the QX template and everything else to mihomo', function () {
+            expect(pickClientFromPlatform('QX')).to.equal('qx');
+            expect(pickClientFromPlatform('QuantumultX')).to.equal('qx');
+            expect(pickClientFromPlatform('ClashMeta')).to.equal('clash');
+            expect(pickClientFromPlatform('Surge')).to.equal('clash');
+            expect(pickClientFromPlatform('')).to.equal('clash');
+            expect(pickClientFromPlatform(undefined)).to.equal('clash');
         });
     });
 

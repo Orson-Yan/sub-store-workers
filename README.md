@@ -278,9 +278,12 @@ SUB_STORE_FRONTEND_BACKEND_PATH = "/你的密码"
 Sub-Store 的 producers 只输出节点列表（`proxies` / `server_local`），不含 `proxy-groups`、`policy` 和 `rules`。本仓库额外提供两个渲染路由，把节点套进内置模板，一次下发「节点 + 分组 + 分流规则」：
 
 ```text
-https://你的域名/你的密码/cfg/clash/<订阅或组合名>   # mihomo / Clash（Clash Party、Mihomo Party、Verge、Stash…）
-https://你的域名/你的密码/cfg/qx/<订阅或组合名>      # Quantumult X
+https://你的域名/你的密码/cfg/<订阅或组合名>          # 一个地址，按客户端 UA 自动出对应格式（推荐）
+https://你的域名/你的密码/cfg/clash/<订阅或组合名>   # 强制 mihomo / Clash
+https://你的域名/你的密码/cfg/qx/<订阅或组合名>      # 强制 Quantumult X
 ```
+
+不写 `clash` / `qx` 时，按请求的 `User-Agent` 自动识别：Quantumult X → QX 配置，其余（Clash Party、Mihomo Party、Verge、Stash、Surge…）→ mihomo 配置。所以桌面和手机可以填**同一个订阅地址**。
 
 行为说明：
 

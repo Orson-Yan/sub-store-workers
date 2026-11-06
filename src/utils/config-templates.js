@@ -12,8 +12,14 @@
 
 import YAML from 'yaml';
 
-/** 配置渲染路由：/<密码>/cfg/<clash|qx>/<订阅或组合名> */
-const CONFIG_ROUTE = /^\/([^/]+)\/cfg\/(clash|qx)\/([^/]+)$/;
+/**
+ * 配置渲染路由。
+ *
+ *   /<密码>/cfg/<订阅或组合名>          按 User-Agent 自动选择格式（推荐）
+ *   /<密码>/cfg/clash/<订阅或组合名>    强制 mihomo / Clash
+ *   /<密码>/cfg/qx/<订阅或组合名>       强制 Quantumult X
+ */
+const CONFIG_ROUTE = /^\/([^/]+)\/cfg\/(?:(clash|qx)\/)?([^/]+)$/;
 
 const REGION_RULES = [
     {
@@ -309,17 +315,29 @@ export function parseClashProxies(text) {
 }
 
 /**
+ * 把 Sub-Store 识别出的平台映射成配置模板类型。
+ * QX 之外的客户端统一走 mihomo 模板（本仓库只维护这两种模板）。
+ *
+ * @param {string} platform 例如 QX / ClashMeta / Surge / sing-box
+ * @returns {'clash'|'qx'}
+ */
+export function pickClientFromPlatform(platform) {
+    const value = `${platform || ''}`.toUpperCase();
+    return value === 'QX' || value === 'QUANTUMULTX' ? 'qx' : 'clash';
+}
+
+/**
  * 匹配配置渲染路由。
  *
  * @param {string} pathname
- * @returns {{ password: string, client: 'clash'|'qx', name: string }|null}
+ * @returns {{ password: string, client: 'clash'|'qx'|null, name: string }|null}
  */
 export function matchConfigRoute(pathname) {
     const match = CONFIG_ROUTE.exec(pathname);
     if (!match) return null;
     return {
         password: decodeURIComponent(match[1]),
-        client: /** @type {'clash'|'qx'} */ (match[2]),
+        client: /** @type {'clash'|'qx'|null} */ (match[2] || null),
         name: decodeURIComponent(match[3]),
     };
 }
