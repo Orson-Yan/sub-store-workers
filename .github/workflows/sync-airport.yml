@@ -1,18 +1,19 @@
 name: Sync Airport Subscription
 
-# 机场订阅域名在 Cloudflare 上开了挑战页（Just a moment），Workers 出口 IP 会被 403，
-# 无法由 Worker 直接拉取。这里用 GitHub Actions（Azure 出口）代拉，再把节点内容
-# 推回 Sub-Store 作为本地订阅，Worker 侧只做合并/渲染，不再直连机场。
+# 机场订阅域名挂在 Cloudflare 上并开启了挑战页（Just a moment），
+# Workers 出口 IP 会拿到 403，无法由 Worker 直接拉取。
+# 这里用 GitHub Actions 代拉（Azure 出口可正常访问），再把节点内容推回
+# Sub-Store 作为本地订阅；Worker 侧只做合并 / 过滤 / 渲染，不再直连机场。
 #
 # 需要的 Secrets：
 #   AIRPORT_SUB_URL      机场订阅链接（含 token）
 #   SUB_STORE_BASE       后端根地址，例如 https://sub.example.com
 #   SUB_STORE_PASSWORD   后端密码前缀，例如 /xxxxxxxx
-#   SUB_STORE_SUB_NAME   要更新的 Sub-Store 订阅名，默认 chuixue（用 vars 或 secret 均可）
+#   SUB_STORE_SUB_NAME   Sub-Store 中的订阅名，例如 chuixue（可选，默认 chuixue）
 
 on:
   schedule:
-    # 每 6 小时一次（UTC 的 03/09/15/21 点 15 分）
+    # 每 6 小时（UTC 03/09/15/21 点 15 分）
     - cron: '15 */6 * * *'
   workflow_dispatch:
 
@@ -31,20 +32,23 @@ jobs:
           AIRPORT_SUB_URL: ${{ secrets.AIRPORT_SUB_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${AIRPORT_SUB_URL}" ]; then
+          url="$(printf '%s' "${AIRPORT_SUB_URL}" | tr -d '\r\n')"
+          if [ -z "${url}" ]; then
             echo "::error::AIRPORT_SUB_URL 未配置"
             exit 1
           fi
-          # 用 Clash Meta 的 UA 取订阅，机场会返回完整 Clash 配置
-          curl -fsS -m 60 -A 'clash.meta/v1.19.23' -o sub.txt "$AIRPORT_SUB_URL"
+          # 用 Clash Meta 的 UA 取订阅，机场返回完整 Clash 配置
+          curl -fsS -m 60 -A 'clash.meta/v1.19.23' -o sub.txt "${url}"
           size=$(wc -c < sub.txt)
           echo "size=${size} bytes"
           echo "SUB_SIZE=${size}" >> "$GITHUB_ENV"
+
           if ! grep -q '^proxies:' sub.txt; then
             echo "::error::响应不是 Clash 配置，前 300 字节："
             head -c 300 sub.txt
             exit 1
           fi
+
           # 只统计 proxies: 块内的列表项，避免把 proxy-groups / rules 也算进去
           nodes=$(awk '/^proxies:/{f=1;next} f&&/^[^[:space:]]/{exit} f' sub.txt | grep -cE '^[[:space:]]+- ' || true)
           echo "nodes=${nodes}"
@@ -60,8 +64,11 @@ jobs:
           SUB_STORE_PASSWORD: ${{ secrets.SUB_STORE_PASSWORD }}
         run: |
           set -euo pipefail
-          base="${SUB_STORE_BASE%/}${SUB_STORE_PASSWORD}"
-          # 只写 source/content，清空 url，避免后端再去直连机场
+          # 去掉 secret 可能携带的换行/回车，避免 curl 报 Malformed input
+          base="$(printf '%s' "${SUB_STORE_BASE%/}${SUB_STORE_PASSWORD}" | tr -d '\r\n')"
+          echo "base_len=${#base}"
+
+          # 只写 source/content 并清空 url：后端不会再尝试直连机场
           jq -Rs '{source:"local", content:., url:""}' sub.txt > payload.json
           code=$(curl -sS -m 90 -o resp.json -w '%{http_code}' \
             -X PATCH "${base}/api/sub/${SUB_NAME}" \
@@ -81,7 +88,7 @@ jobs:
           SUB_STORE_PASSWORD: ${{ secrets.SUB_STORE_PASSWORD }}
         run: |
           set -euo pipefail
-          base="${SUB_STORE_BASE%/}${SUB_STORE_PASSWORD}"
+          base="$(printf '%s' "${SUB_STORE_BASE%/}${SUB_STORE_PASSWORD}" | tr -d '\r\n')"
           for i in 1 2 3; do
             code=$(curl -sS -m 90 -A 'clash-verge/v2' -o cfg.yaml -w '%{http_code}' \
               "${base}/cfg/${SUB_NAME}" || true)
@@ -90,6 +97,8 @@ jobs:
               proxies=$(sed -n '/^proxies:/,/^proxy-groups:/p' cfg.yaml | grep -c '^  - ' || true)
               groups=$(grep -c '^  - name:' cfg.yaml || true)
               echo "verify ok: proxies=${proxies} groups=${groups}"
+              echo "CFG_PROXIES=${proxies}" >> "$GITHUB_ENV"
+              echo "CFG_GROUPS=${groups}" >> "$GITHUB_ENV"
               exit 0
             fi
             sleep 10
@@ -106,8 +115,8 @@ jobs:
             echo ""
             echo "| 项目 | 值 |"
             echo "| --- | --- |"
-            echo "| 订阅名 | \\`${SUB_NAME}\\` |"
-            echo "| 订阅大小 | ${SUB_SIZE:-?} bytes |"
-            echo "| 节点数 | ${SUB_NODES:-?} |"
-            echo "| 结果 | ${{ job.status }} |"
+            echo "| 订阅名 | \`${SUB_NAME}\` |"
+            echo "| 机场返回 | ${SUB_SIZE:-?} bytes / ${SUB_NODES:-?} 个节点 |"
+            echo "| 渲染结果 | ${CFG_PROXIES:-?} 个节点 / ${CFG_GROUPS:-?} 个分组 |"
+            echo "| 状态 | ${{ job.status }} |"
           } >> "$GITHUB_STEP_SUMMARY"
