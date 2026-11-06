@@ -45,7 +45,8 @@ jobs:
             head -c 300 sub.txt
             exit 1
           fi
-          nodes=$(grep -c '^  - ' sub.txt || true)
+          # 只统计 proxies: 块内的列表项，避免把 proxy-groups / rules 也算进去
+          nodes=$(awk '/^proxies:/{f=1;next} f&&/^[^[:space:]]/{exit} f' sub.txt | grep -cE '^[[:space:]]+- ' || true)
           echo "nodes=${nodes}"
           echo "SUB_NODES=${nodes}" >> "$GITHUB_ENV"
           if [ "${nodes}" -lt 1 ]; then
