@@ -6,6 +6,7 @@ import {
     classifyRegion,
     groupByRegion,
     matchConfigRoute,
+    matchShareConfigRoute,
     pickClientFromPlatform,
     buildClashConfig,
     buildQxConfig,
@@ -72,6 +73,25 @@ describe('config render', function () {
             });
             expect(matchConfigRoute('/secret/cfg/v2ray/main')).to.equal(null);
             expect(matchConfigRoute('/secret/cfg/clash/a/b')).to.equal(null);
+        });
+    });
+
+    describe('matchShareConfigRoute', function () {
+        it('parses share token routes', function () {
+            expect(matchShareConfigRoute('/cfg/share/sub/main')).to.deep.equal({
+                type: 'sub',
+                name: 'main',
+            });
+            expect(matchShareConfigRoute('/cfg/share/col/main')).to.deep.equal({
+                type: 'col',
+                name: 'main',
+            });
+        });
+
+        it('rejects unsupported types', function () {
+            expect(matchShareConfigRoute('/cfg/share/file/main')).to.equal(null);
+            expect(matchShareConfigRoute('/cfg/share/sub')).to.equal(null);
+            expect(matchShareConfigRoute('/share/sub/main')).to.equal(null);
         });
     });
 

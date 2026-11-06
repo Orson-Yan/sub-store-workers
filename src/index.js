@@ -181,7 +181,7 @@ export default {
 
             // 完整配置渲染（/<密码>/cfg/<client>/<name>），需要 KV 数据已就绪
             if (isConfigRequest(originalPathname)) {
-                const response = await handleConfigRequest(request, originalPathname, {
+                const response = await handleConfigRequest(request, url, {
                     backendPath,
                 });
                 flushPending(ctx);

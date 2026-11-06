@@ -281,9 +281,29 @@ Sub-Store 的 producers 只输出节点列表（`proxies` / `server_local`），
 https://你的域名/你的密码/cfg/<订阅或组合名>          # 一个地址，按客户端 UA 自动出对应格式（推荐）
 https://你的域名/你的密码/cfg/clash/<订阅或组合名>   # 强制 mihomo / Clash
 https://你的域名/你的密码/cfg/qx/<订阅或组合名>      # 强制 Quantumult X
+https://你的域名/cfg/share/<sub|col>/<名称>?token=xxx  # 分享链接：不暴露密码，可撤销/过期
 ```
 
 不写 `clash` / `qx` 时，按请求的 `User-Agent` 自动识别：Quantumult X → QX 配置，其余（Clash Party、Mihomo Party、Verge、Stash、Surge…）→ mihomo 配置。所以桌面和手机可以填**同一个订阅地址**。
+
+#### 用分享链接代替密码（推荐给别人/多设备用）
+
+不想在客户端里放管理员密码时，用 Sub-Store 原生的分享 token：
+
+```bash
+# 1. 为组合 main 签一个 365 天有效的分享 token
+curl -X POST https://你的域名/你的密码/api/token \
+  -H 'content-type: application/json' \
+  -d '{"payload":{"type":"col","name":"main"},"options":{"mode":"duration","expiresIn":"365d"}}'
+
+# 2. 用返回的 token 组成配置地址（UA 自动识别，可用 &format=clash|qx 强制）
+# https://你的域名/cfg/share/col/main?token=<token>
+
+# 3. 失效/撤销：删除 token（同时删除该组合的所有分享）
+curl -X DELETE 'https://你的域名/你的密码/api/token/<token>?type=col&name=main'
+```
+
+token 只绑定 `type + name`，泄露后只能拿到这一个订阅/组合的节点，拿不到管理 API，也看不到密码前缀。支持 `mode: duration | datetime | count`（即按有效期 / 固定到期时间 / 可用次数限制）。
 
 行为说明：
 

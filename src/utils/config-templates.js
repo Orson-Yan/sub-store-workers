@@ -21,6 +21,9 @@ import YAML from 'yaml';
  */
 const CONFIG_ROUTE = /^\/([^/]+)\/cfg\/(?:(clash|qx)\/)?([^/]+)$/;
 
+/** 分享 token 路由：/cfg/share/<sub|col>/<名称>?token=xxx */
+const SHARE_CONFIG_ROUTE = /^\/cfg\/share\/(sub|col)\/([^/]+)$/;
+
 const REGION_RULES = [
     {
         group: '🇭🇰 香港',
@@ -343,11 +346,26 @@ export function matchConfigRoute(pathname) {
 }
 
 /**
- * 判断请求是否命中配置渲染路由。
+ * 匹配分享 token 路由。
+ *
+ * @param {string} pathname
+ * @returns {{ type: 'sub'|'col', name: string }|null}
+ */
+export function matchShareConfigRoute(pathname) {
+    const match = SHARE_CONFIG_ROUTE.exec(pathname);
+    if (!match) return null;
+    return {
+        type: /** @type {'sub'|'col'} */ (match[1]),
+        name: decodeURIComponent(match[2]),
+    };
+}
+
+/**
+ * 判断请求是否命中配置渲染路由（密码前缀或分享 token）。
  *
  * @param {string} pathname
  * @returns {boolean}
  */
 export function isConfigRequest(pathname) {
-    return CONFIG_ROUTE.test(pathname);
+    return CONFIG_ROUTE.test(pathname) || SHARE_CONFIG_ROUTE.test(pathname);
 }
