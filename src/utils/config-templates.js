@@ -487,7 +487,7 @@ export function buildQxConfig(serverLines) {
         ['China', '🎯 全球直连'],
     ].map(
         ([name, policyName]) =>
-            `${QX_RULE(name)}, tag=${name}, force-policy=${policyName}, enabled=true, update-interval=86400`,
+            `${QX_RULE(name)}, tag=${name}, force-policy=${policyName}, enabled=true`,
     );
 
     const filterLocal = [
