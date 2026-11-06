@@ -191,9 +191,13 @@ export function buildClashConfig(proxies) {
         dns: {
             enable: true,
             ipv6: false,
+            'use-hosts': true,
             'enhanced-mode': 'fake-ip',
             'fake-ip-range': '198.18.0.1/16',
             'default-nameserver': ['223.5.5.5', '119.29.29.29'],
+            // 关键：fake-ip 模式下必须用真实 DNS 解析代理服务器域名，
+            // 否则节点域名会被解析成 198.18.x.x，表现为所有节点超时
+            'proxy-server-nameserver': ['223.5.5.5', '119.29.29.29'],
             nameserver: [
                 'https://doh.pub/dns-query',
                 'https://dns.alidns.com/dns-query',

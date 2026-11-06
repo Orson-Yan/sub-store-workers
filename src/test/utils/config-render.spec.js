@@ -118,6 +118,9 @@ describe('config render', function () {
 
             expect(config.proxies).to.have.length(3);
             expect(config.mode).to.equal('rule');
+            // fake-ip 下必须给代理服务器域名单独配真实 DNS，否则节点全部超时
+            expect(config.dns['proxy-server-nameserver']).to.be.an('array').that.is.not.empty;
+            expect(config.dns['proxy-server-nameserver']).to.include('223.5.5.5');
             expect(config.rules[config.rules.length - 1]).to.match(/^MATCH,/);
 
             const names = config['proxy-groups'].map((g) => g.name);
