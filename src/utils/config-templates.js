@@ -2,12 +2,16 @@
  * 客户端配置模板（纯函数，无 Sub-Store 运行时依赖）。
  *
  * Sub-Store 的 producers 只输出节点（proxies / server_local），不含 proxy-groups、
- * policy 与 rules。这里把节点列表渲染成完整配置：
+ * policy 与 rules。这里把节点套进完整配置模板：
  *
- *   - buildClashConfig：mihomo / Clash（Clash Party、Mihomo Party、Stash、Verge…）
+ *   - buildClashConfig：mihomo / Clash（Clash Party、Mihomo Party、Verge、Stash…）
  *   - buildQxConfig：Quantumult X（圈X）
  *
- * 放在 utils 下的原因：不引入 `@/core/app` 等有副作用的运行时，测试可直接引用。
+ * 分流采用 rule-providers / filter_remote，规则源为：
+ *   - Clash：MetaCubeX/meta-rules-dat 的 geosite / geoip YAML（jsDelivr）
+ *   - QX：blackmatrix7/ios_rule_script 的 QuantumultX list（jsDelivr）
+ * 相比 GEOSITE / GEOIP 内联规则，不依赖客户端是否下载了 geodata，
+ * 规则更新由客户端按 interval 自动拉取。
  */
 
 import YAML from 'yaml';
@@ -23,6 +27,13 @@ const CONFIG_ROUTE = /^\/([^/]+)\/cfg\/(?:(clash|qx)\/)?([^/]+)$/;
 
 /** 分享 token 路由：/cfg/share/<sub|col>/<名称>?token=xxx */
 const SHARE_CONFIG_ROUTE = /^\/cfg\/share\/(sub|col)\/([^/]+)$/;
+
+const GEOSITE = (name) =>
+    `https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/${name}.yaml`;
+const GEOIP = (name) =>
+    `https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geoip/${name}.yaml`;
+const QX_RULE = (name) =>
+    `https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/QuantumultX/${name}/${name}.list`;
 
 const REGION_RULES = [
     {
@@ -72,7 +83,7 @@ const REGION_RULES = [
  * ASCII 缩写（HK/JP/US…）用边界匹配，避免 "AUS"、"MSG" 这类误判。
  *
  * @param {string} name
- * @returns {string|null} 命中的分组名，未命中返回 null
+ * @returns {string|null}
  */
 export function classifyRegion(name) {
     const raw = `${name || ''}`;
@@ -118,14 +129,26 @@ export function groupByRegion(proxies) {
     return { groups, others };
 }
 
-const CLASH_RULES = [
-    'GEOSITE,category-ads-all,🛑 广告拦截',
-    'GEOSITE,private,🎯 全局直连',
-    'GEOIP,private,🎯 全局直连,no-resolve',
-    'GEOSITE,cn,🎯 全局直连',
-    'GEOIP,CN,🎯 全局直连,no-resolve',
-    'MATCH,🐟 漏网之鱼',
-];
+const CLASH_RULE_PROVIDERS = {
+    ads: { behavior: 'domain', url: GEOSITE('category-ads-all') },
+    'private-domain': { behavior: 'domain', url: GEOSITE('private') },
+    'private-ip': { behavior: 'ipcidr', url: GEOIP('private') },
+    telegram: { behavior: 'domain', url: GEOSITE('telegram') },
+    netflix: { behavior: 'domain', url: GEOSITE('netflix') },
+    disney: { behavior: 'domain', url: GEOSITE('disney') },
+    youtube: { behavior: 'domain', url: GEOSITE('youtube') },
+    spotify: { behavior: 'domain', url: GEOSITE('spotify') },
+    netease: { behavior: 'domain', url: GEOSITE('netease') },
+    bilibili: { behavior: 'domain', url: GEOSITE('bilibili') },
+    openai: { behavior: 'domain', url: GEOSITE('openai') },
+    github: { behavior: 'domain', url: GEOSITE('github') },
+    apple: { behavior: 'domain', url: GEOSITE('apple') },
+    microsoft: { behavior: 'domain', url: GEOSITE('microsoft') },
+    games: { behavior: 'domain', url: GEOSITE('category-games') },
+    'media-cn': { behavior: 'domain', url: GEOSITE('category-media-cn') },
+    'cn-domain': { behavior: 'domain', url: GEOSITE('geolocation-cn') },
+    'cn-ip': { behavior: 'ipcidr', url: GEOIP('cn') },
+};
 
 /**
  * 生成完整 mihomo / Clash 配置。
@@ -136,19 +159,43 @@ const CLASH_RULES = [
 export function buildClashConfig(proxies) {
     const { groups, others } = groupByRegion(proxies);
     const allNames = proxies.map((proxy) => `${proxy.name}`);
+    const regionNames = groups.map((group) => group.name);
+
+    const nodeTargets = [
+        '♻️ 自动选择',
+        '🔯 故障转移',
+        '🔮 负载均衡',
+        ...regionNames,
+        ...(others.length > 0 ? ['🌐 其他节点'] : []),
+        'DIRECT',
+    ];
+
+    /** 地区节点组 + 直连兜底，用于各类分流的「手动选择」 */
+    const regionTargets = [...regionNames, 'DIRECT'];
 
     const proxyGroups = [
-        {
-            name: '🚀 节点选择',
-            type: 'select',
-            proxies: ['♻️ 自动选择', ...groups.map((g) => g.name), 'DIRECT'],
-        },
+        { name: '🚀 节点选择', type: 'select', proxies: nodeTargets },
         {
             name: '♻️ 自动选择',
             type: 'url-test',
             url: 'http://www.gstatic.com/generate_204',
             interval: 300,
             tolerance: 50,
+            proxies: allNames.length > 0 ? allNames : ['DIRECT'],
+        },
+        {
+            name: '🔯 故障转移',
+            type: 'fallback',
+            url: 'http://www.gstatic.com/generate_204',
+            interval: 300,
+            proxies: allNames.length > 0 ? allNames : ['DIRECT'],
+        },
+        {
+            name: '🔮 负载均衡',
+            type: 'load-balance',
+            strategy: 'consistent-hashing',
+            url: 'http://www.gstatic.com/generate_204',
+            interval: 300,
             proxies: allNames.length > 0 ? allNames : ['DIRECT'],
         },
         ...groups.map((group) => ({
@@ -168,7 +215,79 @@ export function buildClashConfig(proxies) {
 
     proxyGroups.push(
         {
-            name: '🎯 全局直连',
+            name: '📲 电报消息',
+            type: 'select',
+            proxies: ['🚀 节点选择', ...regionTargets],
+        },
+        {
+            name: '🎥 奈飞视频',
+            type: 'select',
+            proxies: ['🚀 节点选择', ...regionTargets],
+        },
+        {
+            name: '🎬 迪士尼+',
+            type: 'select',
+            proxies: ['🚀 节点选择', ...regionTargets],
+        },
+        {
+            name: '📺 油管视频',
+            type: 'select',
+            proxies: ['🚀 节点选择', ...regionTargets],
+        },
+        {
+            name: '🎶 国外音乐',
+            type: 'select',
+            proxies: ['🚀 节点选择', ...regionTargets],
+        },
+        {
+            name: '🎵 网易云音乐',
+            type: 'select',
+            proxies: ['🎯 全球直连', '🚀 节点选择', 'DIRECT'],
+        },
+        {
+            name: '📺 哔哩哔哩',
+            type: 'select',
+            proxies: [
+                '🎯 全球直连',
+                ...regionNames.filter((name) =>
+                    ['🇭🇰 香港', '🇹🇼 台湾'].includes(name),
+                ),
+                '🚀 节点选择',
+                'DIRECT',
+            ],
+        },
+        {
+            name: '🤖 OpenAI',
+            type: 'select',
+            proxies: ['🚀 节点选择', ...regionTargets],
+        },
+        {
+            name: '🐙 GitHub',
+            type: 'select',
+            proxies: ['🚀 节点选择', ...regionTargets],
+        },
+        {
+            name: '🍎 苹果服务',
+            type: 'select',
+            proxies: ['🎯 全球直连', '🚀 节点选择', 'DIRECT'],
+        },
+        {
+            name: 'Ⓜ️ 微软服务',
+            type: 'select',
+            proxies: ['🎯 全球直连', '🚀 节点选择', 'DIRECT'],
+        },
+        {
+            name: '🎮 游戏平台',
+            type: 'select',
+            proxies: ['🎯 全球直连', '🚀 节点选择', 'DIRECT'],
+        },
+        {
+            name: '🌏 国内媒体',
+            type: 'select',
+            proxies: ['🎯 全球直连', '🚀 节点选择', 'DIRECT'],
+        },
+        {
+            name: '🎯 全球直连',
             type: 'select',
             proxies: ['DIRECT', '🚀 节点选择'],
         },
@@ -176,8 +295,50 @@ export function buildClashConfig(proxies) {
         {
             name: '🐟 漏网之鱼',
             type: 'select',
-            proxies: ['🚀 节点选择', '🎯 全局直连', 'DIRECT'],
+            proxies: ['🚀 节点选择', '🎯 全球直连', 'DIRECT'],
         },
+    );
+
+    const RULE_SETS = [
+        ['private-domain', '🎯 全球直连'],
+        ['private-ip', '🎯 全球直连', 'no-resolve'],
+        ['ads', '🛑 广告拦截'],
+        ['telegram', '📲 电报消息'],
+        ['netflix', '🎥 奈飞视频'],
+        ['disney', '🎬 迪士尼+'],
+        ['youtube', '📺 油管视频'],
+        ['spotify', '🎶 国外音乐'],
+        ['netease', '🎵 网易云音乐'],
+        ['bilibili', '📺 哔哩哔哩'],
+        ['openai', '🤖 OpenAI'],
+        ['github', '🐙 GitHub'],
+        ['apple', '🍎 苹果服务'],
+        ['microsoft', 'Ⓜ️ 微软服务'],
+        ['games', '🎮 游戏平台'],
+        ['media-cn', '🌏 国内媒体'],
+        ['cn-domain', '🎯 全球直连'],
+        ['cn-ip', '🎯 全球直连', 'no-resolve'],
+    ];
+
+    const rules = [
+        ...RULE_SETS.map(([name, policy, ...extra]) =>
+            [`RULE-SET,${name},${policy}`, ...extra].join(','),
+        ),
+        'MATCH,🐟 漏网之鱼',
+    ];
+
+    const ruleProviders = Object.fromEntries(
+        Object.entries(CLASH_RULE_PROVIDERS).map(([name, provider]) => [
+            name,
+            {
+                type: 'http',
+                behavior: provider.behavior,
+                format: 'yaml',
+                url: provider.url,
+                path: `./ruleset/${name}.yaml`,
+                interval: 86400,
+            },
+        ]),
     );
 
     const config = {
@@ -188,6 +349,12 @@ export function buildClashConfig(proxies) {
         ipv6: false,
         'unified-delay': true,
         'tcp-concurrent': true,
+        'find-process-mode': 'strict',
+        'global-client-fingerprint': 'chrome',
+        profile: {
+            'store-selected': true,
+            'store-fake-ip': true,
+        },
         dns: {
             enable: true,
             ipv6: false,
@@ -207,16 +374,12 @@ export function buildClashConfig(proxies) {
         },
         proxies,
         'proxy-groups': proxyGroups,
-        rules: CLASH_RULES,
+        'rule-providers': ruleProviders,
+        rules,
     };
 
     return YAML.stringify(config, { lineWidth: 0 });
 }
-
-/** QX 广告规则（filter_remote）。jsdelivr 国内可直连，避免 raw.githubusercontent 被墙 */
-const QX_FILTER_REMOTE = [
-    'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/QuantumultX/Advertising/Advertising.list, tag=广告拦截, force-policy=🛑 广告拦截, enabled=true',
-];
 
 /**
  * 生成完整 Quantumult X 配置。
@@ -237,7 +400,8 @@ export function buildQxConfig(serverLines) {
         const match = /,tag=(.*?)(?=,[a-zA-Z0-9-]+=|$)/.exec(line);
         if (!match) return { line, name: null };
         const name = match[1];
-        const rest = line.slice(0, match.index) + line.slice(match.index + match[0].length);
+        const rest =
+            line.slice(0, match.index) + line.slice(match.index + match[0].length);
         return { line: `${rest},tag=${name}`, name };
     });
 
@@ -246,11 +410,20 @@ export function buildQxConfig(serverLines) {
         named.map((node) => ({ name: node.name })),
     );
     const allNames = named.map((node) => node.name);
+    const regionNames = groups.map((group) => group.name);
+    const nodeTargets = ['♻️ 自动选择', ...regionNames, 'direct'];
 
-    const policy = [];
-    const members = ['♻️ 自动选择', ...groups.map((g) => g.name)];
-    if (others.length > 0) members.push('🌐 其他节点');
-    policy.push(`static=🚀 节点选择, ${[...members, 'direct'].join(', ')}`);
+    const buildStatic = (name, policies) =>
+        `static=${name}, ${policies.join(', ')}`;
+
+    const policy = [
+        buildStatic('🚀 节点选择', [
+            '♻️ 自动选择',
+            ...regionNames,
+            ...(others.length > 0 ? ['🌐 其他节点'] : []),
+            'direct',
+        ]),
+    ];
 
     if (allNames.length > 0) {
         policy.push(
@@ -261,18 +434,60 @@ export function buildQxConfig(serverLines) {
     }
 
     for (const group of groups) {
-        policy.push(
-            `static=${group.name}, ${[...group.proxies, 'direct'].join(', ')}`,
-        );
+        policy.push(buildStatic(group.name, [...group.proxies, 'direct']));
     }
     if (others.length > 0) {
-        policy.push(`static=🌐 其他节点, ${[...others, 'direct'].join(', ')}`);
+        policy.push(buildStatic('🌐 其他节点', [...others, 'direct']));
     }
 
+    const proxyFirst = ['🚀 节点选择', ...nodeTargets];
+    const directFirst = ['🎯 全球直连', '🚀 节点选择', 'direct'];
+    const biliFirst = [
+        '🎯 全球直连',
+        ...regionNames.filter((name) => ['🇭🇰 香港', '🇹🇼 台湾'].includes(name)),
+        '🚀 节点选择',
+        'direct',
+    ];
+
     policy.push(
-        'static=🎯 全局直连, direct',
-        'static=🛑 广告拦截, reject, direct',
-        'static=🐟 漏网之鱼, 🚀 节点选择, 🎯 全局直连, direct',
+        buildStatic('📲 电报消息', proxyFirst),
+        buildStatic('🎥 奈飞视频', proxyFirst),
+        buildStatic('🎬 迪士尼+', proxyFirst),
+        buildStatic('📺 油管视频', proxyFirst),
+        buildStatic('🎶 国外音乐', proxyFirst),
+        buildStatic('🎵 网易云音乐', directFirst),
+        buildStatic('📺 哔哩哔哩', biliFirst),
+        buildStatic('🤖 OpenAI', proxyFirst),
+        buildStatic('🐙 GitHub', proxyFirst),
+        buildStatic('🍎 苹果服务', directFirst),
+        buildStatic('Ⓜ️ 微软服务', directFirst),
+        buildStatic('🎮 游戏平台', directFirst),
+        buildStatic('🌏 国内媒体', directFirst),
+        buildStatic('🎯 全球直连', ['direct', '🚀 节点选择']),
+        buildStatic('🛑 广告拦截', ['reject', 'direct']),
+        buildStatic('🐟 漏网之鱼', ['🚀 节点选择', '🎯 全球直连', 'direct']),
+    );
+
+    // QX 的 filter_remote：规则由客户端自动拉取，force-policy 指向上面的策略组
+    const FILTER_REMOTE = [
+        ['AdvertisingLite', '🛑 广告拦截'],
+        ['Lan', '🎯 全球直连'],
+        ['Telegram', '📲 电报消息'],
+        ['Netflix', '🎥 奈飞视频'],
+        ['Disney', '🎬 迪士尼+'],
+        ['YouTube', '📺 油管视频'],
+        ['Spotify', '🎶 国外音乐'],
+        ['NetEaseMusic', '🎵 网易云音乐'],
+        ['BiliBili', '📺 哔哩哔哩'],
+        ['OpenAI', '🤖 OpenAI'],
+        ['GitHub', '🐙 GitHub'],
+        ['Apple', '🍎 苹果服务'],
+        ['Microsoft', 'Ⓜ️ 微软服务'],
+        ['Game', '🎮 游戏平台'],
+        ['China', '🎯 全球直连'],
+    ].map(
+        ([name, policyName]) =>
+            `${QX_RULE(name)}, tag=${name}, force-policy=${policyName}, enabled=true, update-interval=86400`,
     );
 
     const filterLocal = [
@@ -282,7 +497,7 @@ export function buildQxConfig(serverLines) {
         'ip-cidr, 172.16.0.0/12, direct',
         'ip-cidr, 192.168.0.0/16, direct',
         'ip-cidr, 127.0.0.0/8, direct',
-        'geoip, cn, 🎯 全局直连',
+        'geoip, cn, 🎯 全球直连',
         'final, 🐟 漏网之鱼',
     ];
 
@@ -305,7 +520,7 @@ export function buildQxConfig(serverLines) {
         ...nodes.map((node) => node.line),
         '',
         '[filter_remote]',
-        ...QX_FILTER_REMOTE,
+        ...FILTER_REMOTE,
         '',
         '[filter_local]',
         ...filterLocal,
@@ -331,12 +546,12 @@ export function parseClashProxies(text) {
  * 把 Sub-Store 识别出的平台映射成配置模板类型。
  * QX 之外的客户端统一走 mihomo 模板（本仓库只维护这两种模板）。
  *
- * @param {string} platform 例如 QX / ClashMeta / Surge / sing-box
+ * @param {string} platform
  * @returns {'clash'|'qx'}
  */
 export function pickClientFromPlatform(platform) {
     const value = `${platform || ''}`.toUpperCase();
-    return value === 'QX' || value === 'QUANTUMULTX' ? 'qx' : 'clash';
+    return value === 'QX' || value.includes('QUANTUMULT') ? 'qx' : 'clash';
 }
 
 /**

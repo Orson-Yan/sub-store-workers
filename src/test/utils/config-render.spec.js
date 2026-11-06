@@ -156,7 +156,45 @@ describe('config render', function () {
                 buildClashConfig([{ name: 'A', type: 'ss', server: '1.1.1.1', port: 443 }]),
             );
             const select = config['proxy-groups'][0];
-            expect(select.proxies).to.deep.equal(['♻️ 自动选择', 'DIRECT']);
+            expect(select.proxies).to.deep.equal([
+                '♻️ 自动选择',
+                '🔯 故障转移',
+                '🔮 负载均衡',
+                '🌐 其他节点',
+                'DIRECT',
+            ]);
+        });
+
+        it('declares every rule-provider used by rules', function () {
+            const config = YAML.parse(buildClashConfig(proxies));
+            const providers = config['rule-providers'];
+            const groupNames = new Set(config['proxy-groups'].map((g) => g.name));
+            const builtins = new Set(['DIRECT', 'REJECT']);
+
+            expect(providers).to.be.an('object');
+            expect(Object.keys(providers)).to.have.length.greaterThan(10);
+            for (const [name, provider] of Object.entries(providers)) {
+                expect(provider.url, `${name} 缺少 url`).to.match(/^https:\/\//);
+                expect(['domain', 'ipcidr']).to.include(provider.behavior);
+            }
+
+            const ruleSets = config.rules.filter((rule) => rule.startsWith('RULE-SET,'));
+            expect(ruleSets.length).to.be.greaterThan(10);
+            for (const rule of ruleSets) {
+                const [, providerName, policy] = rule.split(',');
+                expect(providers[providerName], `未声明的 rule-provider ${providerName}`)
+                    .to.be.an('object');
+                expect(
+                    groupNames.has(policy) || builtins.has(policy),
+                    `规则指向了不存在的策略 ${policy}`,
+                ).to.equal(true);
+            }
+
+            // 最后一条必须是兜底，且前置规则不能出现 MATCH
+            expect(config.rules[config.rules.length - 1]).to.equal('MATCH,🐟 漏网之鱼');
+            expect(config.rules.slice(0, -1).some((r) => r.startsWith('MATCH'))).to.equal(
+                false,
+            );
         });
     });
 
@@ -216,6 +254,15 @@ describe('config render', function () {
                 const parts = line.split(',').map((part) => part.trim());
                 const policy = parts[parts.length - 1];
                 expect(declared.has(policy), `未声明的策略 ${policy}`).to.equal(true);
+            }
+
+            const remoteSection = config.split('[filter_remote]')[1].split('[')[0];
+            for (const line of remoteSection.split('\n').filter(Boolean)) {
+                const match = /force-policy=([^,]+)/.exec(line);
+                expect(match, `filter_remote 缺少 force-policy: ${line}`).to.not.equal(null);
+                expect(declared.has(match[1].trim()), `未声明的策略 ${match[1]}`).to.equal(
+                    true,
+                );
             }
         });
     });
