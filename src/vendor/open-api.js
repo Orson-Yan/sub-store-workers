@@ -54,15 +54,21 @@ export class OpenAPI {
         };
     }
 
-    /** 从 KV 初始化 */
-    async initFromKV(kvBinding) {
+    /**
+     * 从 KV 初始化。
+     *
+     * @param {KVNamespace} kvBinding
+     * @param {{ cacheTtl?: number }} [options]
+     *   cacheTtl：KV 边缘缓存秒数，默认 60。分享 token / 配置渲染需要即时可见时传 0。
+     */
+    async initFromKV(kvBinding, { cacheTtl = 60 } = {}) {
         this._kvBinding = kvBinding;
         this._dirty = false;
         this._rootDirty = false;
 
         // 加载主缓存
         try {
-            const raw = await kvBinding.get(this.name, 'text', { cacheTtl: 60 });
+            const raw = await kvBinding.get(this.name, 'text', { cacheTtl });
             if (raw) {
                 this.cache = JSON.parse(raw);
                 if (!isPlainObject(this.cache)) {
@@ -81,7 +87,7 @@ export class OpenAPI {
 
         // 加载根数据
         try {
-            const raw = await kvBinding.get('root', 'text', { cacheTtl: 60 });
+            const raw = await kvBinding.get('root', 'text', { cacheTtl });
             if (raw) {
                 this.root = JSON.parse(raw);
                 if (!isPlainObject(this.root)) {

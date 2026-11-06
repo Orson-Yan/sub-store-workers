@@ -170,8 +170,14 @@ export default {
             // 注入环境变量
             globalThis.__workerEnv = env;
 
+            // 配置渲染路径：新签发的分享 token / 新建订阅需要即时可见，跳过 KV 边缘缓存
+            const isConfigPath = isConfigRequest(originalPathname);
+
             // 从 KV 加载数据
-            await $.initFromKV(env.SUB_STORE_DATA);
+            await $.initFromKV(
+                env.SUB_STORE_DATA,
+                isConfigPath ? { cacheTtl: 0 } : undefined,
+            );
             $.workerEnv = env;
 
             // 数据迁移
@@ -179,8 +185,8 @@ export default {
 
             console.log(`Sub-Store Workers v${version} handling: ${request.method} ${pathname}`);
 
-            // 完整配置渲染（/<密码>/cfg/<client>/<name>），需要 KV 数据已就绪
-            if (isConfigRequest(originalPathname)) {
+            // 完整配置渲染（密码前缀或分享 token），需要 KV 数据已就绪
+            if (isConfigPath) {
                 const response = await handleConfigRequest(request, url, {
                     backendPath,
                 });
