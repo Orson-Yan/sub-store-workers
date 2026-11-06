@@ -1,0 +1,112 @@
+name: Sync Airport Subscription
+
+# 机场订阅域名在 Cloudflare 上开了挑战页（Just a moment），Workers 出口 IP 会被 403，
+# 无法由 Worker 直接拉取。这里用 GitHub Actions（Azure 出口）代拉，再把节点内容
+# 推回 Sub-Store 作为本地订阅，Worker 侧只做合并/渲染，不再直连机场。
+#
+# 需要的 Secrets：
+#   AIRPORT_SUB_URL      机场订阅链接（含 token）
+#   SUB_STORE_BASE       后端根地址，例如 https://sub.example.com
+#   SUB_STORE_PASSWORD   后端密码前缀，例如 /xxxxxxxx
+#   SUB_STORE_SUB_NAME   要更新的 Sub-Store 订阅名，默认 chuixue（用 vars 或 secret 均可）
+
+on:
+  schedule:
+    # 每 6 小时一次（UTC 的 03/09/15/21 点 15 分）
+    - cron: '15 */6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: sync-airport
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      SUB_NAME: ${{ secrets.SUB_STORE_SUB_NAME || 'chuixue' }}
+    steps:
+      - name: Fetch airport subscription
+        env:
+          AIRPORT_SUB_URL: ${{ secrets.AIRPORT_SUB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AIRPORT_SUB_URL}" ]; then
+            echo "::error::AIRPORT_SUB_URL 未配置"
+            exit 1
+          fi
+          # 用 Clash Meta 的 UA 取订阅，机场会返回完整 Clash 配置
+          curl -fsS -m 60 -A 'clash.meta/v1.19.23' -o sub.txt "$AIRPORT_SUB_URL"
+          size=$(wc -c < sub.txt)
+          echo "size=${size} bytes"
+          echo "SUB_SIZE=${size}" >> "$GITHUB_ENV"
+          if ! grep -q '^proxies:' sub.txt; then
+            echo "::error::响应不是 Clash 配置，前 300 字节："
+            head -c 300 sub.txt
+            exit 1
+          fi
+          nodes=$(grep -c '^  - ' sub.txt || true)
+          echo "nodes=${nodes}"
+          echo "SUB_NODES=${nodes}" >> "$GITHUB_ENV"
+          if [ "${nodes}" -lt 1 ]; then
+            echo "::error::机场返回 0 个节点，放弃更新"
+            exit 1
+          fi
+
+      - name: Push nodes to Sub-Store
+        env:
+          SUB_STORE_BASE: ${{ secrets.SUB_STORE_BASE }}
+          SUB_STORE_PASSWORD: ${{ secrets.SUB_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          base="${SUB_STORE_BASE%/}${SUB_STORE_PASSWORD}"
+          # 只写 source/content，清空 url，避免后端再去直连机场
+          jq -Rs '{source:"local", content:., url:""}' sub.txt > payload.json
+          code=$(curl -sS -m 90 -o resp.json -w '%{http_code}' \
+            -X PATCH "${base}/api/sub/${SUB_NAME}" \
+            -H 'content-type: application/json' \
+            --data-binary @payload.json)
+          echo "patch status=${code}"
+          head -c 300 resp.json || true
+          echo
+          if [ "${code}" != "200" ]; then
+            echo "::error::写入 Sub-Store 失败"
+            exit 1
+          fi
+
+      - name: Verify rendered config
+        env:
+          SUB_STORE_BASE: ${{ secrets.SUB_STORE_BASE }}
+          SUB_STORE_PASSWORD: ${{ secrets.SUB_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          base="${SUB_STORE_BASE%/}${SUB_STORE_PASSWORD}"
+          for i in 1 2 3; do
+            code=$(curl -sS -m 90 -A 'clash-verge/v2' -o cfg.yaml -w '%{http_code}' \
+              "${base}/cfg/${SUB_NAME}" || true)
+            echo "attempt ${i}: status=${code}"
+            if [ "${code}" = "200" ] && grep -q '^proxy-groups:' cfg.yaml; then
+              proxies=$(sed -n '/^proxies:/,/^proxy-groups:/p' cfg.yaml | grep -c '^  - ' || true)
+              groups=$(grep -c '^  - name:' cfg.yaml || true)
+              echo "verify ok: proxies=${proxies} groups=${groups}"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::渲染结果校验失败"
+          head -c 300 cfg.yaml || true
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## 机场订阅同步"
+            echo ""
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| 订阅名 | \\`${SUB_NAME}\\` |"
+            echo "| 订阅大小 | ${SUB_SIZE:-?} bytes |"
+            echo "| 节点数 | ${SUB_NODES:-?} |"
+            echo "| 结果 | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
