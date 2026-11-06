@@ -180,6 +180,22 @@ describe('config render', function () {
             expect(config).to.include('final, 🐟 漏网之鱼');
         });
 
+        it('moves tag to the end when reality params follow it', function () {
+            const line =
+                'vless=a.com:443,method=none,password=u,obfs=over-tls,tls-host=x.com,udp-relay=true,tag=🇯🇵日本•移联01,reality-base64-pubkey=PK,reality-hex-shortid=ab12';
+            const config = buildQxConfig(line);
+            const serverLine = config
+                .split('[server_local]')[1]
+                .split('[')[0]
+                .trim();
+
+            expect(serverLine).to.match(/tag=🇯🇵日本•移联01$/);
+            expect(serverLine).to.include('reality-base64-pubkey=PK');
+            // 策略里不能把 reality 参数当成节点名
+            expect(config).to.include('static=🇯🇵 日本, 🇯🇵日本•移联01, direct');
+            expect(config).not.to.include('移联01,reality-base64-pubkey');
+        });
+
         it('references only declared policies in filters', function () {
             const config = buildQxConfig(serverLines);
             const policySection = config.split('[policy]')[1].split('[')[0];

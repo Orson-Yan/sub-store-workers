@@ -226,9 +226,15 @@ export function buildQxConfig(serverLines) {
         .map((line) => line.trim())
         .filter(Boolean);
 
+    // Sub-Store 的 QX producer 会把部分参数（如 reality-*）追加在 tag 之后，
+    // 而 QX 要求 tag 放在参数末尾。这里把 tag 摘出来，统一挪到最后，
+    // 同时避免把 reality 参数误当成节点名。
     const nodes = lines.map((line) => {
-        const match = /,tag=(.+)$/.exec(line);
-        return { line, name: match ? match[1] : null };
+        const match = /,tag=(.*?)(?=,[a-zA-Z0-9-]+=|$)/.exec(line);
+        if (!match) return { line, name: null };
+        const name = match[1];
+        const rest = line.slice(0, match.index) + line.slice(match.index + match[0].length);
+        return { line: `${rest},tag=${name}`, name };
     });
 
     const named = nodes.filter((node) => node.name);
