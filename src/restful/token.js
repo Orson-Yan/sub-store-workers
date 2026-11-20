@@ -404,6 +404,32 @@ function consumeShareToken(query) {
     return nextToken;
 }
 
+/**
+ * 按请求校验并消费分享令牌，结果缓存在 req 上避免同一次请求内重复扣减 count。
+ * 与上游 2.44.15+ 的 download.js / file.js 配套：它们会 import 本函数。
+ */
+function consumeShareTokenForRequest(req, type) {
+    const query = {
+        token: req.query?.token,
+        type,
+        name: req.params?.name,
+    };
+    if (
+        req.subStoreShareToken &&
+        req.subStoreShareToken.token === query.token &&
+        req.subStoreShareToken.type === type &&
+        req.subStoreShareToken.name === query.name
+    ) {
+        return req.subStoreShareToken;
+    }
+
+    const token = consumeShareToken(query);
+    if (token) {
+        req.subStoreShareToken = token;
+    }
+    return token;
+}
+
 function findShareToken(query) {
     const allTokens = $.read(TOKENS_KEY) || [];
     return (
@@ -426,4 +452,10 @@ function shouldArchiveDeletion(mode) {
     );
 }
 
-export { createTokenItem, deleteTokenItem, consumeShareToken, findShareToken };
+export {
+    createTokenItem,
+    deleteTokenItem,
+    consumeShareToken,
+    consumeShareTokenForRequest,
+    findShareToken,
+};
