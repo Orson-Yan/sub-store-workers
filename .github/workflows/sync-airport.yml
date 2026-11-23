@@ -83,8 +83,6 @@ jobs:
           fi
 
       - name: Verify rendered config
-        id: verify-config
-        continue-on-error: true
         env:
           SUB_STORE_BASE: ${{ secrets.SUB_STORE_BASE }}
           SUB_STORE_PASSWORD: ${{ secrets.SUB_STORE_PASSWORD }}
@@ -106,7 +104,7 @@ jobs:
             sleep 10
           done
           echo "::warning::节点已写入，但渲染结果校验失败，请查看本步骤的 HTTP 状态"
-          exit 1
+          echo "CFG_RENDER_WARNING=true" >> "$GITHUB_ENV"
 
       - name: Summary
         if: always()
@@ -118,10 +116,12 @@ jobs:
             echo "| --- | --- |"
             echo "| 订阅名 | \`${SUB_NAME}\` |"
             echo "| 机场返回 | ${SUB_SIZE:-?} bytes / ${SUB_NODES:-?} 个节点 |"
-            case "${{ steps.verify-config.outcome }}" in
-              success) echo "| 渲染结果 | ${CFG_PROXIES} 个节点 / ${CFG_GROUPS} 个分组 |" ;;
-              failure) echo "| 渲染结果 | 校验失败，请查看 Verify rendered config |" ;;
-              *) echo "| 渲染结果 | 未执行 |" ;;
-            esac
+            if [ "${CFG_RENDER_WARNING:-}" = "true" ]; then
+              echo "| 渲染结果 | 校验失败，请查看 Verify rendered config |"
+            elif [ -n "${CFG_PROXIES:-}" ]; then
+              echo "| 渲染结果 | ${CFG_PROXIES} 个节点 / ${CFG_GROUPS} 个分组 |"
+            else
+              echo "| 渲染结果 | 未执行 |"
+            fi
             echo "| 状态 | ${{ job.status }} |"
           } >> "$GITHUB_STEP_SUMMARY"
