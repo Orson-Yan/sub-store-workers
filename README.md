@@ -160,7 +160,7 @@ npm run deploy:pages
 
 ### 5. 连接前端
 
-打开 [Sub-Store 前端](https://sub-store.vercel.app)，后端地址格式：
+打开 [Sub-Store 前端](https://sub.xream.eu.org)，后端地址格式：
 
 ```text
 你的域名/你的密码
